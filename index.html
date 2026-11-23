@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trạm Giám Sát pH Hồ Bơi</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      fontFamily: { sans: ['Plus Jakarta Sans','sans-serif'], mono: ['JetBrains Mono','monospace'] }
+    } }
+  }
+</script>
+<style>
+  body{
+    background-color:#0b1329;
+    background-image:
+      radial-gradient(at 0% 0%, rgba(56,189,248,.08) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(16,185,129,.06) 0px, transparent 50%),
+      radial-gradient(at 50% 50%, rgba(15,23,42,.5) 0px, transparent 100%);
+    background-attachment:fixed; color:#f8fafc;
+  }
+  .glass-panel{
+    background:rgba(15,23,42,.75); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+    border:1px solid rgba(56,189,248,.15); box-shadow:0 10px 30px -10px rgba(0,0,0,.5);
+  }
+  .glass-panel:hover{ border-color:rgba(56,189,248,.3); }
+  .glow-cyan{ box-shadow:0 0 20px rgba(56,189,248,.25); }
+  .glow-emerald{ box-shadow:0 0 20px rgba(16,185,129,.3); }
+  @keyframes pulse-slow{ 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.6;transform:scale(.96)} }
+  .animate-pulse-slow{ animation:pulse-slow 2.5s infinite ease-in-out; }
+  ::-webkit-scrollbar{ width:6px; height:6px; }
+  ::-webkit-scrollbar-track{ background:#0b1329; }
+  ::-webkit-scrollbar-thumb{ background:#1e293b; border-radius:3px; }
+  ::-webkit-scrollbar-thumb:hover{ background:#38bdf8; }
+  .log-list{ max-height:260px; overflow:auto; }
+</style>
+</head>
+<body class="min-h-screen p-3 md:p-6 text-slate-100 flex justify-center items-start font-sans">
+
+<div class="max-w-6xl w-full flex flex-col gap-5">
+
+  <!-- HEADER -->
+  <header class="glass-panel rounded-2xl p-4 md:px-6 md:py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative overflow-hidden">
+    <div class="absolute -right-10 -top-10 w-40 h-40 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="flex items-center gap-4">
+      <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-indigo-600 flex items-center justify-center text-white shadow-lg glow-cyan">
+        <i class="fa-solid fa-droplet text-2xl"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-xl md:text-2xl font-extrabold tracking-wide text-white uppercase">TRẠM GIÁM SÁT pH HỒ BƠI</h1>
+          <span class="px-2 py-0.5 text-xs font-mono font-semibold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-md">IoT</span>
+        </div>
+        <p class="text-xs text-slate-400 font-mono mt-0.5">
+          Phần cứng: <span class="text-cyan-300 font-semibold">XIAO ESP32-C6</span> + <span class="text-emerald-300 font-semibold">MCP6N11</span> + <span class="text-purple-300 font-semibold">TL084</span>
+        </p>
+      </div>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-3 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 pt-3 md:pt-0 border-slate-700/50">
+      <div id="connPill" class="px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2 bg-amber-500/15 text-amber-400 border border-amber-500/30 transition-all cursor-pointer" onclick="openModal()">
+        <span id="connDot" class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+        <i class="fa-solid fa-bolt"></i>
+        <span id="connText">Đang kết nối…</span>
+      </div>
+      <div class="px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2 bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+        <i class="fa-solid fa-microchip"></i>
+        <span>Nguồn dữ liệu: <strong id="srcText">THIẾT BỊ</strong></span>
+      </div>
+      <button onclick="openModal()" title="Cài đặt kết nối" class="w-9 h-9 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 flex items-center justify-center text-slate-300 hover:text-white transition">
+        <i class="fa-solid fa-gear"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- SIMULATION BAR (chỉ hiện ở chế độ giả lập) -->
+  <div id="simbar" class="glass-panel rounded-xl p-3 hidden flex-wrap items-center justify-between gap-3 text-xs">
+    <div class="flex items-center gap-2 text-slate-400">
+      <i class="fa-solid fa-flask-vial text-cyan-400"></i>
+      <span>Thanh Điều Khiển Thử Nghiệm Nhanh (Giả lập — không gửi lệnh tới thiết bị):</span>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <button data-sim="4.0" class="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 transition flex items-center gap-1.5"><i class="fa-solid fa-vial"></i> Test pH Axít (4.0)</button>
+      <button data-sim="7.0" class="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 transition flex items-center gap-1.5"><i class="fa-solid fa-check-double"></i> Test pH Chuẩn (7.0)</button>
+      <button data-sim="10.0" class="px-3 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 transition flex items-center gap-1.5"><i class="fa-solid fa-vial-circle-check"></i> Test pH Kiềm (10.0)</button>
+      <button id="simFault" class="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 transition flex items-center gap-1.5"><i class="fa-solid fa-triangle-exclamation"></i> Mô phỏng lỗi cảm biến</button>
+      <button id="simPause" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 transition flex items-center gap-1.5"><i class="fa-solid fa-pause"></i> Tạm dừng</button>
+    </div>
+  </div>
+
+  <!-- FAULT BANNER -->
+  <div id="banner" class="hidden glass-panel rounded-xl p-4 border-amber-500/40 text-sm text-amber-200 gap-3 items-start" style="border-color:rgba(245,158,11,.45)">
+    <i class="fa-solid fa-triangle-exclamation text-amber-400 text-lg mt-0.5"></i>
+    <div id="bannerTxt"></div>
+  </div>
+
+  <!-- KPI CARDS -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+
+    <!-- A: pH -->
+    <div class="glass-panel rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden">
+      <div class="flex justify-between items-start gap-2">
+        <div>
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">ĐỘ pH HIỆN TẠI</span>
+          <h3 class="text-lg font-bold text-white mt-0.5">Trạng Thái Hồ Bơi</h3>
+        </div>
+        <span id="ph-status-badge" class="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-700/40 text-slate-300 border border-slate-600 text-right">CHỜ DỮ LIỆU</span>
+      </div>
+
+      <div class="my-4 flex items-baseline gap-3">
+        <div id="kpi-ph-value" class="text-5xl font-black font-mono tracking-tight text-slate-400">--</div>
+        <span class="text-lg font-bold text-slate-400 font-mono">pH</span>
+      </div>
+
+      <div class="space-y-1.5">
+        <div class="flex justify-between text-xs font-mono text-slate-400">
+          <span>Axit (0)</span>
+          <span class="text-emerald-400 font-bold" id="target-label">Mục tiêu: --</span>
+          <span>Kiềm (14)</span>
+        </div>
+        <div class="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden p-0.5 relative border border-slate-700">
+          <div id="ph-band" class="absolute h-full bg-emerald-500/30 border-x border-emerald-400" style="left:40%;width:5%"></div>
+          <div id="ph-progress-bar" class="h-full bg-gradient-to-r from-amber-500 via-emerald-400 to-cyan-400 rounded-full transition-all duration-500" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div class="mt-4 pt-3 border-t border-slate-800 flex justify-between items-center text-xs text-slate-400">
+        <span>Ngưỡng bơm: <strong id="thr-label" class="text-slate-200 font-mono">--</strong></span>
+        <span class="flex items-center gap-1"><i class="fa-solid fa-chart-line text-emerald-400"></i> Trôi: <strong id="kpi-drift-text" class="text-emerald-400 font-mono">—</strong></span>
+      </div>
+    </div>
+
+    <!-- B: analog -->
+    <div class="glass-panel rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden">
+      <div class="flex justify-between items-start">
+        <div>
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">ĐIỆN ÁP ANALOG</span>
+          <h3 class="text-lg font-bold text-white mt-0.5">Cảm Biến & Khuếch Đại</h3>
+        </div>
+        <span class="w-7 h-7 rounded-lg bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center font-mono font-bold text-xs">IC</span>
+      </div>
+
+      <div class="my-4 flex items-baseline gap-2">
+        <div id="kpi-voltage" class="text-4xl font-extrabold font-mono text-cyan-400">--</div>
+        <span class="text-xl font-bold text-slate-400 font-mono">V</span>
+      </div>
+
+      <div class="space-y-2 text-xs">
+        <div class="flex justify-between items-center bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+          <span class="text-slate-400">Mạch đệm MCP6N11:</span>
+          <span id="mcp-status" class="text-slate-400 font-semibold flex items-center gap-1"><i class="fa-solid fa-circle text-[10px]"></i> Chờ dữ liệu</span>
+        </div>
+        <div class="flex justify-between items-center bg-slate-900/60 p-2 rounded-lg border border-slate-800 font-mono">
+          <span class="text-slate-400">ADC 12-bit (ước tính):</span>
+          <span id="kpi-adc-raw" class="text-cyan-300 font-bold">--</span>
+        </div>
+      </div>
+
+      <div class="mt-4 pt-3 border-t border-slate-800 flex justify-between items-center text-xs text-slate-400">
+        <span>Cập nhật: <strong id="sig-age" class="text-cyan-400 font-mono">—</strong></span>
+        <span id="sig-status" class="text-slate-400 font-semibold"><i class="fa-solid fa-shield-halved"></i> —</span>
+      </div>
+    </div>
+
+    <!-- C: pump -->
+    <div class="glass-panel rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden">
+      <div class="flex justify-between items-start">
+        <div>
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">THIẾT BỊ CHẤP HÀNH</span>
+          <h3 class="text-lg font-bold text-white mt-0.5">Bơm Định Lượng</h3>
+        </div>
+        <span id="pump-mode-badge" class="px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">TỰ ĐỘNG</span>
+      </div>
+
+      <div class="my-4 flex items-center gap-3">
+        <div id="pump-status-icon" class="w-12 h-12 rounded-xl bg-slate-800 text-slate-500 border border-slate-700 flex items-center justify-center text-2xl">
+          <i class="fa-solid fa-gears"></i>
+        </div>
+        <div>
+          <div id="pump-status-text" class="text-2xl font-black text-slate-500 tracking-wide uppercase">ĐÃ TẮT</div>
+          <span id="pump-sub" class="text-xs text-slate-400 font-mono">Bơm đang nghỉ</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-900/70 rounded-xl p-3 border border-slate-800 flex justify-between items-center text-xs font-mono">
+        <span class="text-slate-400">Thời gian chạy hiện tại:</span>
+        <span id="pump-runtime" class="text-slate-500 font-bold text-sm">—</span>
+      </div>
+
+      <div class="mt-4 pt-3 border-t border-slate-800 flex justify-between items-center text-xs text-slate-400">
+        <span>Xu hướng pH: <strong id="pump-trend" class="text-slate-200 font-mono">—</strong></span>
+        <button id="btn-quick-pump" class="text-cyan-400 hover:text-cyan-300 font-semibold underline underline-offset-2">Đổi trạng thái</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHART -->
+  <div class="glass-panel rounded-2xl p-5 flex flex-col gap-4">
+    <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
+      <div>
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-chart-line text-cyan-400 text-lg"></i>
+          <h2 class="text-lg font-bold text-white uppercase tracking-wide">ĐỒ THỊ pH THỜI GIAN THỰC (TELEMETRY)</h2>
+        </div>
+        <p class="text-xs text-slate-400 mt-0.5">Dữ liệu cập nhật liên tục từ cảm biến qua vi điều khiển ESP32-C6</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <div id="ranges" class="bg-slate-900/90 p-1 rounded-xl border border-slate-800 flex flex-wrap items-center text-xs font-semibold">
+          <button data-r="60s" class="px-3 py-1.5 rounded-lg bg-cyan-500 text-slate-950 font-bold transition">60 giây</button>
+          <button data-r="5m"  class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition">5 phút</button>
+          <button data-r="1h"  class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition">1 giờ</button>
+          <button data-r="12h" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition">12 giờ</button>
+          <button data-r="24h" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition">24 giờ</button>
+          <button data-r="5d"  class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition">5 ngày</button>
+        </div>
+        <button id="zoomBtn" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition flex items-center gap-1.5">
+          <i class="fa-solid fa-magnifying-glass-plus text-cyan-400"></i> Phóng to trục Y
+        </button>
+        <button id="btnExport" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition flex items-center gap-1.5">
+          <i class="fa-solid fa-file-csv text-emerald-400"></i> Xuất CSV
+        </button>
+      </div>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-slate-400 font-mono">
+      <span>Min <strong id="sMin" class="text-slate-100">--</strong></span>
+      <span>TB <strong id="sAvg" class="text-slate-100">--</strong></span>
+      <span>Max <strong id="sMax" class="text-slate-100">--</strong></span>
+      <span id="srcNote" class="ml-auto text-slate-500"></span>
+    </div>
+
+    <div class="w-full h-72 md:h-80 relative bg-slate-950/40 rounded-xl p-3 border border-slate-800/80">
+      <canvas id="telemetryChart"></canvas>
+    </div>
+  </div>
+
+  <!-- CONTROL + CALIBRATION -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+    <div class="glass-panel rounded-2xl p-5 flex flex-col justify-between gap-4">
+      <div class="flex items-center gap-2 border-b border-slate-800 pb-3">
+        <div class="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 flex items-center justify-center text-sm"><i class="fa-solid fa-sliders"></i></div>
+        <div>
+          <h3 class="text-base font-bold text-white">THIẾT LẬP NGƯỠNG TỰ ĐỘNG</h3>
+          <p class="text-xs text-slate-400">Cấu hình tham số kích hoạt bơm tự động dựa trên độ pH đo được</p>
+        </div>
+      </div>
+
+      <div class="space-y-4 my-1">
+        <div class="flex items-center justify-between bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+          <div class="flex items-center gap-2.5">
+            <span class="w-3 h-3 rounded-full bg-amber-400"></span>
+            <span class="text-xs font-semibold text-slate-300">Bật bơm khi pH &lt;</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <input type="number" id="input-ph-min" step="0.1" min="0" max="14" value="5.5" class="w-20 bg-slate-950 border border-slate-700 text-center font-mono font-bold text-sm text-cyan-400 py-1.5 rounded-lg focus:outline-none focus:border-cyan-400">
+            <span class="text-xs text-slate-400 font-mono">pH</span>
+          </div>
+        </div>
+        <div class="flex items-center justify-between bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+          <div class="flex items-center gap-2.5">
+            <span class="w-3 h-3 rounded-full bg-cyan-400"></span>
+            <span class="text-xs font-semibold text-slate-300">Tắt bơm khi pH ≥</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <input type="number" id="input-ph-max" step="0.1" min="0" max="14" value="6.2" class="w-20 bg-slate-950 border border-slate-700 text-center font-mono font-bold text-sm text-cyan-400 py-1.5 rounded-lg focus:outline-none focus:border-cyan-400">
+            <span class="text-xs text-slate-400 font-mono">pH</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-3 gap-2.5 pt-2">
+        <button id="btnSave" class="py-2.5 px-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-md shadow-cyan-500/20">
+          <i class="fa-solid fa-floppy-disk"></i> LƯU THIẾT LẬP
+        </button>
+        <button id="btnAuto" class="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 transition flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
+          <i class="fa-solid fa-rotate"></i> VỀ TỰ ĐỘNG
+        </button>
+        <button id="btnPump" class="py-2.5 px-3 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold text-xs border border-rose-500/40 transition flex items-center justify-center gap-1.5">
+          <i class="fa-solid fa-bolt"></i> <span id="btnPumpTxt">FORCE PUMP</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="glass-panel rounded-2xl p-5 flex flex-col justify-between gap-4">
+      <div class="flex items-center gap-2 border-b border-slate-800 pb-3">
+        <div class="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 border border-purple-500/30 flex items-center justify-center text-sm"><i class="fa-solid fa-key"></i></div>
+        <div>
+          <h3 class="text-base font-bold text-white">CHẾ ĐỘ HIỆU CHUẨN (CALIBRATION)</h3>
+          <p class="text-xs text-slate-400">Nhúng đầu đo cảm biến vào dung dịch chuẩn tương ứng trước khi ấn</p>
+        </div>
+      </div>
+
+      <div class="flex justify-between items-center bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-lock text-purple-400 text-sm" id="lock-icon"></i>
+          <span class="text-xs font-semibold text-slate-300">Mở khóa để thực hiện hiệu chuẩn <span class="text-slate-500 font-normal">(tự khóa sau 60s)</span></span>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input type="checkbox" id="cal-unlock-switch" class="sr-only peer">
+          <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+        </label>
+      </div>
+
+      <div class="grid grid-cols-3 gap-2.5">
+        <button id="cal4" disabled class="cal-btn p-3 rounded-xl bg-slate-900 border border-slate-800 text-slate-500 font-semibold text-xs flex flex-col items-center gap-1 transition opacity-50 cursor-not-allowed">
+          <span class="text-slate-400 font-mono text-[10px]">Dung Dịch · điểm 2</span>
+          <span class="text-amber-400 font-bold text-sm">pH 4.0</span>
+        </button>
+        <button id="cal7" disabled class="cal-btn p-3 rounded-xl bg-slate-900 border border-slate-800 text-slate-500 font-semibold text-xs flex flex-col items-center gap-1 transition opacity-50 cursor-not-allowed">
+          <span class="text-slate-400 font-mono text-[10px]">Dung Dịch · điểm 1</span>
+          <span class="text-emerald-400 font-bold text-sm">pH 7.0</span>
+        </button>
+        <button id="calHw" disabled class="cal-btn p-3 rounded-xl bg-slate-900 border border-slate-800 text-slate-500 font-semibold text-xs flex flex-col items-center gap-1 transition opacity-50 cursor-not-allowed">
+          <span class="text-slate-400 font-mono text-[10px]">Phần cứng</span>
+          <span class="text-purple-400 font-bold text-sm">Kích EN/CAL</span>
+        </button>
+      </div>
+
+      <div class="pt-2 border-t border-slate-800/80 flex items-center gap-2 text-xs text-slate-400">
+        <span id="calDot" class="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0"></span>
+        <span id="calStabTxt">Chờ dữ liệu…</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOG -->
+  <div class="glass-panel rounded-2xl p-5">
+    <div class="flex items-center gap-2 border-b border-slate-800 pb-3 mb-2">
+      <div class="w-8 h-8 rounded-lg bg-slate-700/40 text-slate-300 border border-slate-600 flex items-center justify-center text-sm"><i class="fa-solid fa-list-ul"></i></div>
+      <h3 class="text-base font-bold text-white">NHẬT KÝ SỰ KIỆN</h3>
+    </div>
+    <ul id="log" class="log-list text-xs font-mono flex flex-col"><li class="text-slate-500 py-2">Chưa có sự kiện.</li></ul>
+  </div>
+
+  <!-- FOOTER -->
+  <footer class="glass-panel rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-center text-xs text-slate-400 gap-2">
+    <div class="flex items-center gap-2">
+      <i class="fa-solid fa-water text-cyan-400"></i>
+      <span class="font-bold text-slate-200">TRẠM GIÁM SÁT pH HỒ BƠI</span>
+      <span>• Nguyễn Đình Bảo</span>
+    </div>
+    <div class="font-mono text-[11px] text-slate-500">XIAO ESP32-C6 · MCP6N11 · TL084 | Web Server &amp; Realtime Telemetry</div>
+  </footer>
+</div>
+
+<!-- MODAL -->
+<div id="firebase-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50 hidden">
+  <div class="glass-panel rounded-2xl max-w-md w-full p-6 border border-cyan-500/30 shadow-2xl relative space-y-4">
+    <button onclick="closeModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
+    <div class="flex items-center gap-3 border-b border-slate-800 pb-3">
+      <div class="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-lg"><i class="fa-solid fa-database"></i></div>
+      <div>
+        <h3 class="text-base font-bold text-white">Cấu Hình Firebase Realtime DB</h3>
+        <p class="text-xs text-slate-400">Kết nối cơ sở dữ liệu để đồng bộ thời gian thực</p>
+      </div>
+    </div>
+    <div class="space-y-3 text-xs">
+      <div>
+        <label class="block text-slate-300 font-semibold mb-1">Database URL:</label>
+        <input type="text" id="urlIn" spellcheck="false" placeholder="https://ten-du-an-default-rtdb.region.firebasedatabase.app" class="w-full bg-slate-950 border border-slate-700 text-cyan-300 font-mono p-2.5 rounded-xl focus:outline-none focus:border-cyan-400">
+        <div id="presets" class="flex flex-wrap gap-1.5 mt-2"></div>
+      </div>
+      <div>
+        <label class="block text-slate-300 font-semibold mb-1">Nguồn dữ liệu:</label>
+        <select id="modeIn" class="w-full bg-slate-950 border border-slate-700 text-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-cyan-400">
+          <option value="real">Thiết bị thật (Firebase)</option>
+          <option value="sim">Giả lập (thử giao diện, không cần phần cứng)</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-slate-300 font-semibold mb-1">Cấu trúc dữ liệu:</label>
+        <select id="profIn" class="w-full bg-slate-950 border border-slate-700 text-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-cyan-400">
+          <option value="auto">Tự động nhận diện</option>
+          <option value="A">Hồ sơ A — monitor / settings / control</option>
+          <option value="B">Hồ sơ B — Data / Config / Command / History</option>
+        </select>
+      </div>
+    </div>
+    <div class="pt-3 border-t border-slate-800 flex justify-between gap-3">
+      <button onclick="closeModal()" class="w-1/2 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition">Hủy Bỏ</button>
+      <button id="dlgSave" class="w-1/2 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition">Lưu &amp; Kết Nối</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2"></div>
+
+<script>
+/* =====================================================================
+   CẤU HÌNH
+   ===================================================================== */
+const URL_1 = "https://tram-giam-sat-ph-2356b-default-rtdb.asia-southeast1.firebasedatabase.app";
+const URL_2 = "https://tram-giam-sat-ph-default-rtdb.asia-southeast1.firebasedatabase.app";
+const RANGES = {'60s':60,'5m':300,'1h':3600,'12h':43200,'24h':86400,'5d':432000};
+
+/* =====================================================================
+   TIỆN ÍCH
+   ===================================================================== */
+const $ = s => document.querySelector(s);
+const pad = n => String(n).padStart(2,'0');
+const hms = ms => { const d=new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+const LS = {
+  get(k,d){ try{ const v=localStorage.getItem(k); return v==null?d:JSON.parse(v); }catch(e){ return d; } },
+  set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
+};
+
+function toast(msg, type='info'){
+  const box = $('#toast-container'), t = document.createElement('div');
+  const map = {
+    info:   ['border-cyan-500/40 text-cyan-300',     'fa-circle-info text-cyan-400'],
+    success:['border-emerald-500/40 text-emerald-300','fa-circle-check text-emerald-400'],
+    warning:['border-amber-500/40 text-amber-300',   'fa-triangle-exclamation text-amber-400'],
+    error:  ['border-rose-500/40 text-rose-300',     'fa-circle-xmark text-rose-400']
+  };
+  const [b, i] = map[type] || map.info;
+  t.className = `glass-panel px-4 py-3 rounded-xl border ${b} text-xs font-semibold flex items-center gap-2.5 shadow-xl transition-all duration-300 transform translate-y-2 opacity-0`;
+  t.innerHTML = `<i class="fa-solid ${i} text-sm"></i> <span></span>`;
+  t.querySelector('span').textContent = msg;
+  box.appendChild(t);
+  setTimeout(() => t.classList.remove('translate-y-2','opacity-0'), 10);
+  setTimeout(() => { t.classList.add('opacity-0','translate-y-2'); setTimeout(() => t.remove(), 300); }, 3000);
+}
+
+const TONE = {
+  emerald:{txt:'text-emerald-400', badge:'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'},
+  amber:  {txt:'text-amber-400',   badge:'bg-amber-500/20 text-amber-400 border-amber-500/30'},
+  rose:   {txt:'text-rose-400',    badge:'bg-rose-500/20 text-rose-400 border-rose-500/30'},
+  slate:  {txt:'text-slate-400',   badge:'bg-slate-700/40 text-slate-300 border-slate-600'}
+};
+
+/* =====================================================================
+   TRẠNG THÁI
+   ===================================================================== */
+let cfg = LS.get('ph.cfg', {url: URL_1, profile: 'auto', sim: false});
+let profile = null, busy = false, fails = 0, lastOk = 0, tickN = 0, connState = 'wait';
+const state = {ph:NaN, volt:NaN, pump:false, auto:true, fault:false};
+const th = {low:5.5, high:6.2};
+const simState = {ph:7.0, pump:false, auto:true, paused:false, fault:false};
+let dirty = false, prev = null, pumpSince = null;
+let live = [], hist = [], cloud = [], lastHist = 0;
+let range = '60s', zoom = false, unlocked = false, lockTimer = 0;
+const events = [];
+
+/* =====================================================================
+   GIAO TIẾP FIREBASE (REST) — hỗ trợ 2 cấu trúc dữ liệu
+   ===================================================================== */
+async function req(method, path, body){
+  const ac = new AbortController();
+  const to = setTimeout(()=>ac.abort(), 5000);
+  try{
+    const opt = {method, cache:'no-store', signal:ac.signal};
+    if (body !== undefined){ opt.headers = {'Content-Type':'application/json'}; opt.body = JSON.stringify(body); }
+    const r = await fetch(`${cfg.url}/${path}.json`, opt);
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    return await r.json();
+  } finally { clearTimeout(to); }
+}
+
+const P = {
+  A: {
+    async read(){
+      const d = await req('GET','');
+      if (!d || !d.monitor) return null;
+      const m=d.monitor, s=d.settings||{};
+      return {ph:+m.pH, volt:+m.voltage, pump:!!m.pumpState, auto:s.autoMode!==false,
+              low:s.thresholdLow, high:s.thresholdHigh};
+    },
+    async setAuto(){ await req('PUT','settings/autoMode',true); },
+    async pump(want, isAuto){
+      if (isAuto) await req('PUT','settings/autoMode',false);
+      await req('PUT','control/pumpManual',want);
+    },
+    async saveTh(l,h){ await req('PATCH','settings',{thresholdLow:l, thresholdHigh:h}); },
+    async cal(action){ await req('PUT','control/calibration',{action, ts:Date.now()}); },
+    async history(){ return null; }
+  },
+  B: {
+    async read(){
+      const d = await req('GET','Data');
+      if (!d) return null;
+      return {ph:+d.ph, volt:+d.vout, pump:!!d.pump, auto:!!d.auto, clear:d.clear===true};
+    },
+    async readCfg(){ const c = await req('GET','Config'); return c ? {low:c.low, high:c.high} : null; },
+    async setAuto(){ await req('PATCH','Command',{action:'auto_mode', ts:Date.now()}); },
+    async pump(){ await req('PATCH','Command',{action:'toggle', ts:Date.now()}); },
+    async saveTh(l,h){ await req('PATCH','Config',{low:l, high:h}); },
+    async cal(action){ await req('PATCH','Command',{action, ts:Date.now()}); },
+    async history(){
+      const d = await req('GET','History');
+      if (!d) return [];
+      return Object.entries(d).map(([k,v])=>{
+        const n = parseInt(k); return {t: n<1e11 ? n*1000 : n, ph: parseFloat(v)};
+      }).filter(p=>isFinite(p.t)&&isFinite(p.ph)).sort((a,b)=>a.t-b.t);
+    }
+  },
+  /* Hồ sơ S: giả lập cục bộ (không cần phần cứng) */
+  S: {
+    async read(){ return null },
+    async setAuto(){ simState.auto = true },
+    async pump(want){ simState.auto = false; simState.pump = want },
+    async saveTh(){},
+    async cal(action){ log('info','[Giả lập] Lệnh hiệu chuẩn: ' + action) },
+    async history(){ return [] }
+  }
+};
+
+function simStep(){
+  profile = 'S';
+  const S = simState;
+  if (S.paused) return;
+  if (!S.fault){
+    S.ph += (Math.random()-.5)*0.02 + (S.pump ? 0.05 : -0.004);
+    S.ph = Math.max(0.5, Math.min(13.5, S.ph));
+    if (S.auto){
+      if (S.ph < th.low) S.pump = true;
+      else if (S.ph >= th.high) S.pump = false;
+    }
+  }
+  const volt = S.fault ? 0 : 1.203 + (S.ph - 7.16) * 0.059;
+  ingest({ph: S.fault ? 14 : S.ph, volt, pump:S.pump, auto:S.auto});
+  lastOk = Date.now(); fails = 0; tickN++; setConn('sim');
+}
+
+async function resolveProfile(){
+  if (cfg.profile !== 'auto'){ profile = cfg.profile; return; }
+  const [a,b] = await Promise.allSettled([req('GET','monitor'), req('GET','Data')]);
+  if (b.status==='fulfilled' && b.value) profile='B';
+  else if (a.status==='fulfilled' && a.value) profile='A';
+  else profile=null;
+}
+
+async function loadCloud(){
+  if (profile !== 'B') { cloud = []; return; }
+  try{ cloud = await P.B.history() || []; if (RANGES[range] > 300) drawChart(); }catch(e){}
+}
+
+/* =====================================================================
+   VÒNG LẶP CHÍNH
+   ===================================================================== */
+async function tick(){
+  if (cfg.sim){ simStep(); return; }
+  if (busy) return; busy = true;
+  try{
+    if (!profile){
+      await resolveProfile();
+      if (profile){ log('info',`Đã kết nối — nhận diện hồ sơ ${profile}`); loadCloud(); }
+    }
+    if (!profile) throw new Error('Không tìm thấy dữ liệu trên database');
+    const s = await P[profile].read();
+    if (!s) throw new Error('Database trống');
+    if (profile==='B' && tickN % 15 === 0){
+      try{ const c = await P.B.readCfg(); if (c) applyTh(c.low, c.high); }catch(e){}
+    }
+    tickN++;
+    ingest(s);
+    fails = 0; lastOk = Date.now(); setConn('ok');
+  }catch(e){
+    fails++;
+    if (fails >= 3) setConn('off', e.message);
+  }finally{ busy = false; }
+}
+
+function isFault(ph, volt){
+  return !isFinite(ph) || (isFinite(volt) && volt < 0.05) || ph >= 13.95 || ph <= 0.05;
+}
+
+function ingest(s){
+  const now = Date.now();
+  const fault = isFault(s.ph, s.volt);
+  if (prev){
+    if (s.pump !== prev.pump) log(s.pump?'ok':'info', s.pump ? 'Bơm BẬT' : 'Bơm TẮT');
+    if (s.auto !== prev.auto) log('info','Chế độ: ' + (s.auto ? 'Tự động' : 'Thủ công'));
+    if (fault !== prev.fault) log(fault?'warn':'ok', fault ? 'Số đo bất thường — kiểm tra cảm biến' : 'Số đo trở lại bình thường');
+    if (s.clear && !prev.clear) clearHistory();
+  } else if (fault){
+    log('warn','Số đo bất thường ngay khi kết nối — kiểm tra cảm biến');
+  }
+  if (s.pump && !pumpSince) pumpSince = now;
+  if (!s.pump) pumpSince = null;
+  Object.assign(state, {ph:s.ph, volt:s.volt, pump:s.pump, auto:s.auto, fault});
+  prev = {pump:s.pump, auto:s.auto, fault, clear:!!s.clear};
+  if (s.low != null && s.high != null) applyTh(s.low, s.high);
+
+  if (isFinite(s.ph)){
+    live.push({t:now, ph:s.ph, v:s.volt});
+    if (live.length > 700) live.shift();
+    if (now - lastHist >= 5000){
+      lastHist = now; hist.push({t:now, ph:s.ph});
+      while (hist.length && hist[0].t < now - 86400000) hist.shift();
+    }
+  }
+  render();
+}
+
+function applyTh(l,h){
+  l = parseFloat(l); h = parseFloat(h);
+  if (!isFinite(l) || !isFinite(h) || dirty) return;
+  th.low = l; th.high = h;
+  $('#input-ph-min').value = l; $('#input-ph-max').value = h;
+}
+
+function clearHistory(){
+  live=[]; hist=[]; cloud=[]; LS.set(histKey(), []);
+  log('warn','Thiết bị yêu cầu xóa lịch sử'); drawChart();
+}
+
+/* =====================================================================
+   HIỂN THỊ
+   ===================================================================== */
+function render(){
+  const {ph, volt, fault} = state;
+  const ok = isFinite(ph);
+
+  // --- Card A: pH
+  let tone = 'slate', label = 'CHỜ DỮ LIỆU';
+  if (ok){
+    if (fault){ tone='amber'; label='KHÔNG TIN CẬY'; }
+    else if (ph < th.low){ tone='amber'; label='THẤP (CẦN TĂNG pH)'; }
+    else if (ph > th.high){ tone='rose'; label='CAO (CẦN GIẢM pH)'; }
+    else { tone='emerald'; label='TỐI ƯU (TRONG NGƯỠNG)'; }
+  }
+  const T = TONE[tone];
+  $('#kpi-ph-value').className = `text-5xl font-black font-mono tracking-tight ${T.txt}`;
+  $('#kpi-ph-value').textContent = ok ? ph.toFixed(2) : '--';
+  $('#ph-status-badge').className = `px-2.5 py-1 rounded-full text-xs font-bold border text-right ${T.badge}`;
+  $('#ph-status-badge').textContent = label;
+  $('#ph-progress-bar').style.width = ok ? Math.min(Math.max(ph/14*100, 0), 100) + '%' : '0%';
+  $('#target-label').textContent = `Mục tiêu: ${th.low} - ${th.high}`;
+  $('#thr-label').textContent = `${th.low} / ${th.high}`;
+  const band = $('#ph-band');
+  band.style.left = Math.max(0, th.low/14*100) + '%';
+  band.style.width = Math.max(0, (th.high - th.low)/14*100) + '%';
+
+  const dr = drift(), st = stability();
+  const dEl = $('#kpi-drift-text');
+  dEl.textContent = dr == null ? '—' : dr.toFixed(1) + ' mV / 60s';
+  dEl.className = 'font-mono ' + (st.cls==='good' ? 'text-emerald-400' : st.cls==='mid' ? 'text-amber-400' : 'text-rose-400');
+
+  // --- Card B: analog
+  $('#kpi-voltage').textContent = isFinite(volt) ? volt.toFixed(3) : '--';
+  $('#kpi-adc-raw').textContent = isFinite(volt) ? Math.round(volt / 3.3 * 4095) + ' / 4095' : '--';
+  const mcp = $('#mcp-status'), sig = $('#sig-status');
+  if (!ok){
+    mcp.className = 'text-slate-400 font-semibold flex items-center gap-1';
+    mcp.innerHTML = '<i class="fa-solid fa-circle text-[10px]"></i> Chờ dữ liệu';
+    sig.className = 'text-slate-400 font-semibold'; sig.innerHTML = '<i class="fa-solid fa-shield-halved"></i> —';
+  } else if (fault){
+    mcp.className = 'text-rose-400 font-semibold flex items-center gap-1';
+    mcp.innerHTML = '<i class="fa-solid fa-circle-xmark text-[10px]"></i> Không có tín hiệu';
+    sig.className = 'text-rose-400 font-semibold'; sig.innerHTML = '<i class="fa-solid fa-shield-halved"></i> Tín hiệu lỗi';
+  } else {
+    mcp.className = 'text-emerald-400 font-semibold flex items-center gap-1';
+    mcp.innerHTML = '<i class="fa-solid fa-circle-check text-[10px]"></i> Hoạt động tốt';
+    const c = st.cls==='good' ? 'text-emerald-400' : st.cls==='mid' ? 'text-amber-400' : 'text-rose-400';
+    sig.className = c + ' font-semibold'; sig.innerHTML = `<i class="fa-solid fa-shield-halved"></i> ${st.label}`;
+  }
+
+  // --- Card C: pump
+  const on = state.pump;
+  const pt = $('#pump-status-text'), pi = $('#pump-status-icon');
+  pt.textContent = on ? 'ĐANG BẬT' : 'ĐÃ TẮT';
+  pt.className = `text-2xl font-black tracking-wide uppercase ${on ? 'text-emerald-400' : 'text-slate-500'}`;
+  pi.className = on
+    ? 'w-12 h-12 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center text-2xl animate-pulse-slow glow-emerald'
+    : 'w-12 h-12 rounded-xl bg-slate-800 text-slate-500 border border-slate-700 flex items-center justify-center text-2xl';
+  $('#pump-sub').textContent = on ? 'Hóa chất đang được châm vào hồ' : 'Bơm đang nghỉ';
+  const mb = $('#pump-mode-badge');
+  mb.textContent = state.auto ? 'TỰ ĐỘNG' : 'THỦ CÔNG';
+  mb.className = 'px-2.5 py-1 rounded-full text-xs font-bold border ' + (state.auto
+      ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+      : 'bg-amber-500/20 text-amber-300 border-amber-500/30');
+  const tr = trend();
+  $('#pump-trend').textContent = tr==null ? '—' : Math.abs(tr)<0.02 ? '■ ổn định' : `${tr>0?'▲':'▼'} ${Math.abs(tr).toFixed(2)}/phút`;
+  $('#btnPumpTxt').textContent = on ? 'ÉP TẮT BƠM' : 'ÉP BẬT BƠM';
+  $('#btnAuto').disabled = state.auto;
+  renderRun();
+
+  // --- Hiệu chuẩn: ổn định
+  $('#calDot').className = 'w-2.5 h-2.5 rounded-full shrink-0 ' + (fault ? 'bg-rose-400' : st.cls==='good' ? 'bg-emerald-400' : st.cls==='mid' ? 'bg-amber-400' : 'bg-rose-400');
+  $('#calStabTxt').textContent = fault ? 'Không có tín hiệu cảm biến — chưa nên hiệu chuẩn' : st.long;
+
+  // --- Cảnh báo
+  const bn = $('#banner');
+  if (fault){
+    $('#bannerTxt').innerHTML = '<b>Số đo bất thường.</b> pH sát giới hạn hoặc điện áp gần 0 V thường do cảm biến chưa cắm, hở dây tín hiệu hoặc module thiếu nguồn. Hãy kiểm tra phần cứng trước khi để bơm chạy tự động.';
+    bn.classList.remove('hidden'); bn.classList.add('flex');
+  } else { bn.classList.add('hidden'); bn.classList.remove('flex'); }
+
+  if (RANGES[range] <= 300 || tickN % 10 === 0) drawChart();
+}
+
+function renderRun(){
+  const el = $('#pump-runtime');
+  if (!state.pump || !pumpSince){ el.textContent = '—'; el.className = 'text-slate-500 font-bold text-sm'; return; }
+  const s = Math.floor((Date.now() - pumpSince) / 1000);
+  el.textContent = s >= 3600 ? `${Math.floor(s/3600)} giờ ${Math.floor(s%3600/60)} phút ${pad(s%60)} giây`
+                             : `${Math.floor(s/60)} phút ${pad(s%60)} giây`;
+  el.className = 'text-emerald-400 font-bold text-sm';
+}
+
+function trend(){
+  const n = live.length; if (n < 20) return null;
+  const last = live[n-1];
+  const ref = live.find(p => p.t >= last.t - 60000) || live[0];
+  const dt = (last.t - ref.t) / 60000;
+  return dt < 0.3 ? null : (last.ph - ref.ph) / dt;
+}
+
+function drift(){
+  const n = live.length; if (n < 10) return null;
+  const last = live[n-1];
+  if (!isFinite(last.v)) return null;
+  const ref = live.find(p => p.t >= last.t - 60000 && isFinite(p.v));
+  if (!ref || last.t - ref.t < 20000) return null;
+  return Math.abs(last.v - ref.v) * 1000;
+}
+
+function stability(){
+  const w = live.slice(-10);
+  if (w.length < 10) return {label:'Đang đo…', long:'Đang thu thập số đo…', cls:'mid'};
+  const m = w.reduce((a,p)=>a+p.ph,0)/w.length;
+  const sd = Math.sqrt(w.reduce((a,p)=>a+(p.ph-m)**2,0)/w.length);
+  if (sd < 0.03) return {label:'Tín hiệu ổn định', long:`Số đo ổn định (±${sd.toFixed(3)}) — có thể hiệu chuẩn`, cls:'good'};
+  if (sd < 0.12) return {label:'Hơi dao động', long:`Số đo còn dao động (±${sd.toFixed(3)}) — chờ thêm`, cls:'mid'};
+  return {label:'Dao động mạnh', long:`Số đo dao động mạnh (±${sd.toFixed(2)}) — chưa nên hiệu chuẩn`, cls:'bad'};
+}
+
+function setConn(s, detail){
+  const was = connState; connState = s;
+  const C = {
+    ok:   ['Đã kết nối Firebase DB','emerald'],
+    stale:['Dữ liệu chậm','amber'],
+    off:  ['Mất kết nối','rose'],
+    wait: ['Đang kết nối…','amber'],
+    sim:  ['Chế độ giả lập','indigo']
+  }[s];
+  const cls = {
+    emerald:['bg-emerald-500/15 text-emerald-400 border-emerald-500/30','bg-emerald-400','animate-ping'],
+    amber:  ['bg-amber-500/15 text-amber-400 border-amber-500/30','bg-amber-400','animate-ping'],
+    rose:   ['bg-rose-500/15 text-rose-400 border-rose-500/30','bg-rose-400',''],
+    indigo: ['bg-indigo-500/15 text-indigo-300 border-indigo-500/30','bg-indigo-400','animate-ping']
+  }[C[1]];
+  $('#connPill').className = `px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2 border transition-all cursor-pointer ${cls[0]}`;
+  $('#connDot').className = `w-2 h-2 rounded-full ${cls[1]} ${cls[2]}`;
+  $('#connText').textContent = C[0];
+  $('#srcText').textContent = cfg.sim ? 'GIẢ LẬP' : (profile ? `THIẾT BỊ (hồ sơ ${profile})` : 'THIẾT BỊ');
+  if (s==='off' && was!=='off') log('bad','Mất kết nối' + (detail ? ': '+detail : ''));
+  if (s==='ok' && was==='off') log('ok','Đã kết nối lại');
+}
+
+function applySimUI(){
+  const b = $('#simbar');
+  b.classList.toggle('hidden', !cfg.sim); b.classList.toggle('flex', !!cfg.sim);
+}
+
+/* =====================================================================
+   BIỂU ĐỒ
+   ===================================================================== */
+function getSeries(sec){
+  const cutoff = Date.now() - sec*1000;
+  if (sec <= 300) return live.filter(p => p.t >= cutoff);
+  const lastCloud = cloud.length ? cloud[cloud.length-1].t : 0;
+  const merged = cloud.concat(hist.filter(p => p.t > lastCloud));
+  return merged.filter(p => p.t >= cutoff);
+}
+
+function downsample(pts, max){
+  if (pts.length <= max) return pts;
+  const size = pts.length / max, out = [];
+  for (let i=0;i<max;i++){
+    const seg = pts.slice(Math.floor(i*size), Math.floor((i+1)*size));
+    if (!seg.length) continue;
+    out.push({t: seg[Math.floor(seg.length/2)].t, ph: seg.reduce((a,p)=>a+p.ph,0)/seg.length});
+  }
+  return out;
+}
+
+function fmtT(ms, sec){
+  const d = new Date(ms);
+  if (sec <= 300) return hms(ms);
+  if (sec <= 86400) return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getDate()}/${d.getMonth()+1} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+const bandPlugin = {
+  id:'band',
+  beforeDatasetsDraw(c){
+    const a = c.chartArea, y = c.scales.y; if (!a || !y) return;
+    const clamp = v => Math.max(a.top, Math.min(a.bottom, v));
+    const yl = clamp(y.getPixelForValue(th.low)), yh = clamp(y.getPixelForValue(th.high));
+    const ctx = c.ctx; ctx.save();
+    ctx.fillStyle = 'rgba(16,185,129,.10)';
+    ctx.fillRect(a.left, Math.min(yl,yh), a.right-a.left, Math.abs(yl-yh));
+    ctx.setLineDash([5,5]); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(148,163,184,.6)';
+    ctx.font = '600 10px JetBrains Mono, monospace'; ctx.fillStyle = 'rgba(148,163,184,.95)';
+    [[th.low,'bật'],[th.high,'tắt']].forEach(([v,l])=>{
+      if (v < y.min || v > y.max) return;
+      const py = y.getPixelForValue(v);
+      ctx.beginPath(); ctx.moveTo(a.left,py); ctx.lineTo(a.right,py); ctx.stroke();
+      ctx.fillText(`${l} ${v}`, a.right-52, py-4);
+    });
+    ctx.restore();
+  }
+};
+
+let chart;
+function buildChart(){
+  chart = new Chart($('#telemetryChart').getContext('2d'), {
+    type:'line',
+    data:{labels:[], datasets:[{
+      label:'Độ pH Hồ Bơi', data:[], borderColor:'#38bdf8', borderWidth:2.5, fill:true, tension:.35,
+      pointRadius:2, pointHoverRadius:6, pointBackgroundColor:'#38bdf8', pointBorderColor:'#0b1329', pointBorderWidth:2,
+      backgroundColor:(ctx)=>{
+        const a = ctx.chart.chartArea; if (!a) return 'transparent';
+        const g = ctx.chart.ctx.createLinearGradient(0,a.top,0,a.bottom);
+        g.addColorStop(0,'rgba(56,189,248,.35)'); g.addColorStop(1,'rgba(56,189,248,0)'); return g;
+      }
+    }]},
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:false,
+      interaction:{mode:'index', intersect:false},
+      plugins:{
+        legend:{display:false},
+        tooltip:{backgroundColor:'rgba(15,23,42,.9)', titleColor:'#f8fafc', bodyColor:'#38bdf8',
+          borderColor:'rgba(56,189,248,.3)', borderWidth:1, padding:10, displayColors:false,
+          callbacks:{label:c=>` Giá trị pH: ${c.parsed.y.toFixed(2)} pH`}}
+      },
+      scales:{
+        x:{grid:{color:'rgba(255,255,255,.05)'}, ticks:{color:'#64748b', maxTicksLimit:7, maxRotation:0, font:{family:'JetBrains Mono', size:10}}},
+        y:{min:0, max:14, grid:{color:'rgba(255,255,255,.05)'}, ticks:{color:'#64748b', font:{family:'JetBrains Mono', size:10}}}
+      }
+    },
+    plugins:[bandPlugin]
+  });
+}
+
+function drawChart(){
+  if (!chart) return;
+  const sec = RANGES[range];
+  const pts = getSeries(sec);
+  const ds = downsample(pts, 180);
+  chart.data.labels = ds.map(p => fmtT(p.t, sec));
+  const set = chart.data.datasets[0];
+  set.data = ds.map(p => p.ph);
+  set.borderColor = state.fault ? '#64748b' : '#38bdf8';
+  set.pointRadius = ds.length <= 70 ? 2.5 : 0;
+
+  if (pts.length){
+    const v = pts.map(p=>p.ph), mn = Math.min(...v), mx = Math.max(...v);
+    $('#sMin').textContent = mn.toFixed(2); $('#sMax').textContent = mx.toFixed(2);
+    $('#sAvg').textContent = (v.reduce((a,b)=>a+b,0)/v.length).toFixed(2);
+    let lo = 0, hi = 14;
+    if (zoom){
+      lo = Math.max(0, mn-0.5); hi = Math.min(14, mx+0.5);
+      if (hi-lo < 1.5){ const mid=(hi+lo)/2; lo=Math.max(0,mid-.75); hi=Math.min(14,lo+1.5); }
+    }
+    chart.options.scales.y.min = lo; chart.options.scales.y.max = hi;
+  } else {
+    ['#sMin','#sAvg','#sMax'].forEach(i => $(i).textContent = '--');
+    chart.options.scales.y.min = 0; chart.options.scales.y.max = 14;
+  }
+  $('#srcNote').textContent = sec <= 300 ? 'Nguồn: số đo trực tiếp'
+      : cloud.length ? 'Nguồn: lịch sử Cloud' : sec > 86400 ? 'Nguồn: bộ nhớ trình duyệt (tối đa 24 giờ)' : 'Nguồn: bộ nhớ trình duyệt';
+  chart.update('none');
+}
+
+$('#ranges').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  range = b.dataset.r;
+  document.querySelectorAll('#ranges button').forEach(x => {
+    x.className = x === b ? 'px-3 py-1.5 rounded-lg bg-cyan-500 text-slate-950 font-bold transition'
+                          : 'px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition';
+  });
+  if (RANGES[range] > 300) loadCloud();
+  drawChart();
+});
+$('#zoomBtn').onclick = () => {
+  zoom = !zoom;
+  $('#zoomBtn').classList.toggle('border-cyan-500', zoom);
+  drawChart();
+};
+
+$('#btnExport').onclick = () => {
+  const pts = getSeries(RANGES[range]);
+  if (!pts.length) return toast('Chưa có dữ liệu để xuất','warning');
+  let csv = '﻿Thời gian,Ngày,pH\n';
+  pts.forEach(p => {
+    const d = new Date(p.t);
+    csv += `${hms(p.t)},${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()},${p.ph.toFixed(2)}\n`;
+  });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8;'}));
+  const d = new Date();
+  a.download = `pH_${range}_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  toast(`Đã xuất ${pts.length} điểm dữ liệu`,'success');
+};
+
+/* =====================================================================
+   NHẬT KÝ
+   ===================================================================== */
+function log(type, text){
+  events.unshift({t:Date.now(), type, text});
+  if (events.length > 60) events.pop();
+  const col = {ok:'text-emerald-400', warn:'text-amber-400', bad:'text-rose-400', info:'text-slate-300'};
+  $('#log').innerHTML = events.map(e =>
+    `<li class="flex gap-3 py-2 border-b border-dashed border-slate-800"><time class="text-slate-500 shrink-0">${hms(e.t)}</time><span class="${col[e.type]||col.info}"></span></li>`).join('');
+  const spans = $('#log').querySelectorAll('span');
+  events.forEach((e,i) => { spans[i].textContent = e.text; });
+}
+
+/* =====================================================================
+   GỬI LỆNH
+   ===================================================================== */
+async function run(fn, okMsg){
+  if (!profile){ toast('Chưa kết nối thiết bị','warning'); return false; }
+  try{
+    await fn(); toast(okMsg,'success'); log('ok', okMsg);
+    setTimeout(tick, 500); return true;
+  }catch(e){
+    toast('Lỗi gửi lệnh: ' + e.message,'error'); log('bad','Gửi lệnh thất bại: ' + e.message); return false;
+  }
+}
+
+function pumpManual(){
+  const want = !state.pump;
+  const msg = `${want ? 'Bật' : 'Tắt'} bơm thủ công?` + (state.auto ? '\nHệ thống sẽ chuyển sang chế độ thủ công.' : '');
+  if (!confirm(msg)) return;
+  run(() => P[profile].pump(want, state.auto), want ? 'Đã gửi lệnh bật bơm' : 'Đã gửi lệnh tắt bơm');
+}
+$('#btnPump').onclick = pumpManual;
+$('#btn-quick-pump').onclick = pumpManual;
+$('#btnAuto').onclick = () => run(() => P[profile].setAuto(), 'Đã gửi lệnh về chế độ tự động');
+
+['input-ph-min','input-ph-max'].forEach(id => $('#'+id).addEventListener('input', () => {
+  dirty = true;
+  const l = parseFloat($('#input-ph-min').value), h = parseFloat($('#input-ph-max').value);
+  if (isFinite(l)) th.low = l;
+  if (isFinite(h)) th.high = h;
+  render();
+}));
+
+$('#btnSave').onclick = async () => {
+  const l = parseFloat($('#input-ph-min').value), h = parseFloat($('#input-ph-max').value);
+  if (!isFinite(l) || !isFinite(h)) return toast('Giá trị ngưỡng không hợp lệ','error');
+  if (l < 0 || h > 14) return toast('Ngưỡng phải nằm trong khoảng 0 – 14','error');
+  if (l >= h) return toast('Ngưỡng bật phải nhỏ hơn ngưỡng tắt','error');
+  const ok = await run(() => P[profile].saveTh(l,h), `Đã lưu ngưỡng: bật < ${l}, tắt ≥ ${h}`);
+  if (ok) dirty = false;
+};
+
+/* ---------- Hiệu chuẩn ---------- */
+function setLock(on){
+  unlocked = on;
+  $('#cal-unlock-switch').checked = on;
+  $('#lock-icon').className = `fa-solid ${on ? 'fa-lock-open' : 'fa-lock'} text-purple-400 text-sm`;
+  ['cal4','cal7','calHw'].forEach(id => {
+    const b = $('#'+id); b.disabled = !on;
+    b.classList.toggle('opacity-50', !on);
+    b.classList.toggle('cursor-not-allowed', !on);
+    b.classList.toggle('cursor-pointer', on);
+    b.classList.toggle('hover:border-purple-500/50', on);
+  });
+  clearTimeout(lockTimer);
+  if (on) lockTimer = setTimeout(() => setLock(false), 60000);
+}
+$('#cal-unlock-switch').onchange = e => {
+  setLock(e.target.checked);
+  toast(e.target.checked ? 'Đã MỞ KHÓA chế độ hiệu chuẩn (tự khóa sau 60s)' : 'Đã KHÓA an toàn hiệu chuẩn', e.target.checked ? 'warning' : 'info');
+};
+
+async function doCal(action, label, question){
+  if (!unlocked) return;
+  let q = question;
+  if (state.fault) q += '\n\n⚠ Số đo hiện đang bất thường. Vẫn tiếp tục?';
+  if (!confirm(q)) return;
+  if (await run(() => P[profile].cal(action), `Đã gửi lệnh: ${label}`)) setLock(false);
+}
+$('#calHw').onclick = () => doCal('cal_hw','Kích EN/CAL','Gửi xung EN/CAL để hiệu chuẩn phần cứng?');
+$('#cal7').onclick  = () => doCal('cal_ph7','Chuẩn điểm 1 (pH 7.0)','Cảm biến đang nhúng trong dung dịch chuẩn pH 7.0?');
+$('#cal4').onclick  = () => doCal('cal_ph4','Chuẩn điểm 2 (pH 4.0)','Cảm biến đang nhúng trong dung dịch chuẩn pH 4.0?');
+
+/* =====================================================================
+   LỊCH SỬ TRÌNH DUYỆT
+   ===================================================================== */
+const histKey = () => cfg.sim ? 'ph.hist:sim' : 'ph.hist:' + cfg.url;
+function loadHist(){
+  const raw = LS.get(histKey(), []), min = Date.now() - 86400000;
+  hist = raw.map(a => ({t:a[0]*1000, ph:a[1]})).filter(p => p.t >= min);
+}
+function saveHist(){ LS.set(histKey(), hist.map(p => [Math.round(p.t/1000), +p.ph.toFixed(2)])); }
+setInterval(saveHist, 30000);
+window.addEventListener('beforeunload', saveHist);
+
+/* =====================================================================
+   CÀI ĐẶT KẾT NỐI / GIẢ LẬP
+   ===================================================================== */
+function openModal(){
+  $('#urlIn').value = cfg.url; $('#profIn').value = cfg.profile; $('#modeIn').value = cfg.sim ? 'sim' : 'real';
+  $('#firebase-modal').classList.remove('hidden');
+}
+function closeModal(){ $('#firebase-modal').classList.add('hidden'); }
+
+function fillPresets(){
+  $('#presets').innerHTML = [URL_1, URL_2].map(u => {
+    const name = u.replace('https://','').split('-default-rtdb')[0];
+    return `<button type="button" data-u="${u}" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px] text-cyan-300 font-mono">${name}</button>`;
+  }).join('');
+}
+$('#presets').addEventListener('click', e => { const b = e.target.closest('button'); if (b) $('#urlIn').value = b.dataset.u; });
+
+$('#dlgSave').onclick = () => {
+  const sim = $('#modeIn').value === 'sim';
+  let u = $('#urlIn').value.trim().replace(/\/+$/,'');
+  if (!u && !sim) return toast('Hãy nhập địa chỉ database','error');
+  if (!u) u = cfg.url;
+  if (!/^https?:\/\//.test(u)) u = 'https://' + u;
+  saveHist();
+  cfg = {url:u, profile:$('#profIn').value, sim}; LS.set('ph.cfg', cfg);
+  profile = sim ? 'S' : null; prev = null; tickN = 0; fails = 0; lastOk = 0; pumpSince = null;
+  live = []; cloud = []; loadHist(); setConn(sim ? 'sim' : 'wait'); applySimUI();
+  closeModal();
+  log('info', sim ? 'Chuyển sang chế độ giả lập' : 'Đổi kết nối: ' + u.replace('https://',''));
+  toast('Đã lưu thiết lập kết nối','success');
+  tick();
+};
+
+/* ---------- Thanh giả lập ---------- */
+document.querySelectorAll('[data-sim]').forEach(b => b.onclick = () => {
+  simState.fault = false; simState.ph = parseFloat(b.dataset.sim);
+  $('#simFault').innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Mô phỏng lỗi cảm biến';
+  toast('Đã nạp giá trị pH thử nghiệm: ' + b.dataset.sim,'success'); simStep();
+});
+$('#simFault').onclick = () => {
+  simState.fault = !simState.fault;
+  $('#simFault').innerHTML = simState.fault
+    ? '<i class="fa-solid fa-plug-circle-check"></i> Khôi phục cảm biến'
+    : '<i class="fa-solid fa-triangle-exclamation"></i> Mô phỏng lỗi cảm biến';
+  simStep();
+};
+$('#simPause').onclick = () => {
+  simState.paused = !simState.paused;
+  $('#simPause').innerHTML = simState.paused ? '<i class="fa-solid fa-play"></i> Tiếp tục' : '<i class="fa-solid fa-pause"></i> Tạm dừng';
+  toast(simState.paused ? 'Đã tạm dừng giả lập' : 'Đã tiếp tục giả lập', simState.paused ? 'warning' : 'info');
+};
+
+/* =====================================================================
+   KHỞI ĐỘNG
+   ===================================================================== */
+window.addEventListener('load', () => {
+  if (cfg.sim == null) cfg.sim = false;
+  applySimUI(); fillPresets(); loadHist(); buildChart(); setLock(false); render(); drawChart();
+  setConn(cfg.sim ? 'sim' : 'wait');
+
+  tick();
+  setInterval(tick, 1000);
+  setInterval(() => { if (profile === 'B' && RANGES[range] > 300) loadCloud(); }, 30000);
+  setInterval(() => {
+    renderRun();
+    if (!lastOk){ $('#sig-age').textContent = '—'; return; }
+    const s = Math.round((Date.now() - lastOk) / 1000);
+    $('#sig-age').textContent = s < 2 ? 'vừa xong' : s + ' giây trước';
+    if (s > 6 && connState === 'ok') setConn('stale');
+  }, 500);
+});
+</script>
+</body>
+</html>
